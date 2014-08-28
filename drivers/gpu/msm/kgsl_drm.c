@@ -274,6 +274,21 @@ kgsl_gem_alloc_memory(struct drm_gem_object *obj)
 	} else
 		return -EINVAL;
 
+	/* TODO would be good to cleanup in the error paths, but right now I
+	 * just need it to work enough to run some simple tests..
+	 */
+	result = kgsl_mmu_get_gpuaddr(priv->pagetable, &priv->memdesc);
+	if (result) {
+		DRM_ERROR("kgsl_mmu_get_gpuaddr failed.  result = %d\n", result);
+		return result;
+	}
+	result = kgsl_mmu_map(priv->pagetable, &priv->memdesc);
+	if (result) {
+		DRM_ERROR("kgsl_mmu_map failed.  result = %d\n", result);
+		kgsl_mmu_put_gpuaddr(priv->pagetable, &priv->memdesc);
+		return result;
+	}
+
 	for (index = 0; index < priv->bufcount; index++) {
 		priv->bufs[index].offset = index * obj->size;
 		priv->bufs[index].gpuaddr =
@@ -285,6 +300,77 @@ kgsl_gem_alloc_memory(struct drm_gem_object *obj)
 	return 0;
 }
 
+#if 0
+static int
+kgsl_gem_alloc_memory(struct drm_gem_object *obj)
+{
+	struct drm_kgsl_gem_object *priv = obj->driver_private;
+	int index;
+	int result = 0;
+
+	/* Return if the memory is already allocated */
+
+	if (kgsl_gem_memory_allocated(obj) || TYPE_IS_FD(priv->type))
+		return 0;
+
+	if (priv->pagetable == NULL) {
+		priv->pagetable = kgsl_mmu_getpagetable(KGSL_MMU_GLOBAL_PT);
+
+		if (priv->pagetable == NULL) {
+			DRM_ERROR("Unable to get the GPU MMU pagetable\n");
+			return -EINVAL;
+		}
+	}
+
+	if (TYPE_IS_PMEM(priv->type)) {
+		int type;
+
+		if (priv->type == DRM_KGSL_GEM_TYPE_EBI ||
+		    priv->type & DRM_KGSL_GEM_PMEM_EBI) {
+				type = PMEM_MEMTYPE_EBI1;
+				result = kgsl_sharedmem_ebimem_user(
+						&priv->memdesc,
+						priv->pagetable,
+						obj->size * priv->bufcount,
+						0);
+				if (result) {
+					DRM_ERROR(
+					"Unable to allocate PMEM memory\n");
+					return result;
+				}
+		}
+		else
+			return -EINVAL;
+
+	} else if (TYPE_IS_MEM(priv->type)) {
+
+		if (priv->type == DRM_KGSL_GEM_TYPE_KMEM ||
+			priv->type & DRM_KGSL_GEM_CACHE_MASK)
+				list_add(&priv->list, &kgsl_mem_list);
+
+		result = kgsl_sharedmem_vmalloc_user(&priv->memdesc,
+					priv->pagetable,
+					obj->size * priv->bufcount, 0);
+
+		if (result != 0) {
+				DRM_ERROR(
+				"Unable to allocate Vmalloc user memory\n");
+				return result;
+		}
+	} else
+		return -EINVAL;
+
+	for (index = 0; index < priv->bufcount; index++) {
+		priv->bufs[index].offset = index * obj->size;
+		priv->bufs[index].gpuaddr =
+			priv->memdesc.gpuaddr +
+			priv->bufs[index].offset;
+	}
+	priv->flags |= DRM_KGSL_GEM_FLAG_MAPPED;
+
+	return 0;
+}
+#endif
 static void
 kgsl_gem_free_memory(struct drm_gem_object *obj)
 {
