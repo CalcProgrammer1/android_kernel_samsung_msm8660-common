@@ -10,6 +10,13 @@
   #include <mach/iomap.h>
 #elif defined(CONFIG_ARCH_APQ8064) || defined(CONFIG_ARCH_MSM8X60)
   #include <mach/msm_iomap.h>
+  #define WDT0_RST		0x38
+  #define WDT0_EN			0x40
+  #define WDT0_BARK_TIME		0x4C
+  #define WDT0_BITE_TIME		0x5C
+  #define RESTART_REASON_ADDR	0x65C
+  #define RESTART_RECOVERY_MODE	0x77665502
+  #define RESTART_NORMAL_MODE	0x12345678
 #endif
 #endif
 
@@ -90,23 +97,22 @@ hardboot:
 	ldr	r1, =KEXEC_HB_PAGE_MAGIC
 	str	r1, [r0]
 
-#if defined(CONFIG_ARCH_TEGRA_2x_SOC) || defined(CONFIG_ARCH_TEGRA_3x_SOC)
-	ldr     r0, =TEGRA_PMC_BASE
-	ldr	r1, [r0]
-	orr	r1, r1, #0x10
-	str	r1, [r0]
-loop:	b	loop
-#elif defined(CONFIG_ARCH_APQ8064)
-	/* Restart using the PMIC chip, see mach-msm/restart.c */
-	ldr	r0, =APQ8064_TLMM_PHYS
-	mov	r1, #0
-	str	r1, [r0, #0x820]  @ PSHOLD_CTL_SU
-loop:	b	loop
-#elif defined(CONFIG_ARCH_MSM8X60)
-	/* Hard reset via PMIC, decompressor jumps to kernel. */
-	//ldr r0, =0x00800000
-	//mov r1, #0
-	//str r1, [r0, #0x820] @ PSHOLD_CTL_SU
+#if defined(CONFIG_ARCH_MSM8X60)
+	ldr r0, =(MSM_IMEM_PHYS + RESTART_REASON_ADDR)
+	ldr r1, =RESTART_NORMAL_MODE
+	str r1, [r0]
+	ldr r0, =(MSM_TMR0_PHYS + WDT0_RST)
+	ldr r1, =1
+	str r1, [r0]
+	ldr r0, =(MSM_TMR0_PHYS + WDT0_BARK_TIME)
+	ldr r1, =(5*0x31F3)
+	str r1, [r0]
+	ldr r0, =(MSM_TMR0_PHYS + WDT0_BITE_TIME)
+	ldr r1, =(0x31F3)
+	str r1, [r0]
+	ldr r0, =(MSM_TMR0_PHYS + WDT0_EN)
+	ldr r1, =1
+	str r1, [r0]
 loop:	b	loop
 #else
 #error "No reboot method defined for hardboot."
